@@ -59,6 +59,10 @@ Add to `claude_desktop_config.json`:
 
 ## ChatGPT (remote connector)
 
+**macOS one-liner:** `./scripts/chatgpt-tunnel.sh` — picks the vault via a
+Finder dialog, starts the HTTP server, tunnels it with ngrok, and prints the
+connector URL. Or do it manually:
+
 ChatGPT only connects to MCP servers over HTTP, so run the HTTP transport and
 expose it with a tunnel:
 
