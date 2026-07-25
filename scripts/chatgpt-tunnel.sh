@@ -21,7 +21,9 @@ trap cleanup EXIT INT TERM
 OBSIDIAN_VAULT_PATH="$VAULT" uv --directory "$SCRIPT_DIR" run obsidian-mcp --transport http --port "$PORT" &
 SERVER_PID=$!
 
-ngrok http "$PORT" --log stdout --log-format json >/dev/null &
+# --host-header rewrites Host to what FastMCP's DNS-rebinding protection
+# allows (localhost:*); without it every tunneled request gets 421.
+ngrok http "$PORT" --host-header="localhost:${PORT}" --log stdout --log-format json >/dev/null &
 NGROK_PID=$!
 
 # ngrok exposes the tunnel URL on its local API once the tunnel is up
