@@ -49,3 +49,21 @@ class Vault:
         if not p.is_file():
             raise VaultError(f"Note not found: {path}")
         return p.read_text(encoding="utf-8")
+
+    def write_note(self, path: str, content: str, overwrite: bool = False) -> None:
+        p = self._resolve(path)
+        if p.exists() and not overwrite:
+            raise VaultError(
+                f"Note already exists (pass overwrite=true to replace): {path}"
+            )
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+
+    def append_note(self, path: str, content: str) -> None:
+        p = self._resolve(path)
+        if not p.is_file():
+            raise VaultError(f"Note not found: {path}")
+        existing = p.read_text(encoding="utf-8")
+        if existing and not existing.endswith("\n"):
+            existing += "\n"
+        p.write_text(existing + content, encoding="utf-8")

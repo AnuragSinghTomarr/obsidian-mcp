@@ -77,3 +77,36 @@ class TestReadNote:
     def test_missing_note_errors(self, vault):
         with pytest.raises(VaultError, match="Note not found"):
             vault.read_note("ghost.md")
+
+
+class TestWriteNote:
+    def test_creates_note_with_parents(self, vault, vault_dir):
+        vault.write_note("Areas/Health/log.md", "# Log\n")
+        assert (vault_dir / "Areas" / "Health" / "log.md").read_text(encoding="utf-8") == "# Log\n"
+
+    def test_existing_without_overwrite_errors(self, vault):
+        with pytest.raises(VaultError, match="already exists"):
+            vault.write_note("Inbox.md", "clobber")
+
+    def test_overwrite_replaces(self, vault):
+        vault.write_note("Inbox.md", "fresh\n", overwrite=True)
+        assert vault.read_note("Inbox.md") == "fresh\n"
+
+    def test_rejects_traversal(self, vault):
+        with pytest.raises(VaultError, match="escapes the vault"):
+            vault.write_note("../evil.md", "x")
+
+
+class TestAppendNote:
+    def test_appends_with_newline_separator(self, vault, vault_dir):
+        (vault_dir / "NoNewline.md").write_text("tail", encoding="utf-8")
+        vault.append_note("NoNewline.md", "added\n")
+        assert vault.read_note("NoNewline.md") == "tail\nadded\n"
+
+    def test_appends_to_newline_terminated(self, vault):
+        vault.append_note("Inbox.md", "- new item\n")
+        assert vault.read_note("Inbox.md") == "# Inbox\ncapture things here\n- new item\n"
+
+    def test_missing_note_errors(self, vault):
+        with pytest.raises(VaultError, match="Note not found"):
+            vault.append_note("ghost.md", "x")
