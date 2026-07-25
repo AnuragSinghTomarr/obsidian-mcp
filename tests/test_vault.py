@@ -110,3 +110,35 @@ class TestAppendNote:
     def test_missing_note_errors(self, vault):
         with pytest.raises(VaultError, match="Note not found"):
             vault.append_note("ghost.md", "x")
+
+
+class TestMoveNote:
+    def test_moves_creating_folders(self, vault, vault_dir):
+        vault.move_note("Inbox.md", "Archive/2026/Inbox.md")
+        assert not (vault_dir / "Inbox.md").exists()
+        assert vault.read_note("Archive/2026/Inbox.md") == "# Inbox\ncapture things here\n"
+
+    def test_missing_source_errors(self, vault):
+        with pytest.raises(VaultError, match="Note not found"):
+            vault.move_note("ghost.md", "x.md")
+
+    def test_existing_destination_errors(self, vault):
+        with pytest.raises(VaultError, match="already exists"):
+            vault.move_note("Inbox.md", "Daily/2026-07-24.md")
+
+
+class TestDeleteNote:
+    def test_moves_to_trash(self, vault, vault_dir):
+        assert vault.delete_note("Inbox.md") == ".trash/Inbox.md"
+        assert not (vault_dir / "Inbox.md").exists()
+        assert (vault_dir / ".trash" / "Inbox.md").is_file()
+
+    def test_collision_gets_suffix(self, vault, vault_dir):
+        vault.delete_note("Inbox.md")
+        vault.write_note("Inbox.md", "second\n")
+        assert vault.delete_note("Inbox.md") == ".trash/Inbox 1.md"
+        assert (vault_dir / ".trash" / "Inbox 1.md").read_text(encoding="utf-8") == "second\n"
+
+    def test_missing_note_errors(self, vault):
+        with pytest.raises(VaultError, match="Note not found"):
+            vault.delete_note("ghost.md")

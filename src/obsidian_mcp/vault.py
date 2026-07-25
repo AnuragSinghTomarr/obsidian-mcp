@@ -67,3 +67,27 @@ class Vault:
         if existing and not existing.endswith("\n"):
             existing += "\n"
         p.write_text(existing + content, encoding="utf-8")
+
+    def move_note(self, source: str, destination: str) -> None:
+        src = self._resolve(source)
+        dst = self._resolve(destination)
+        if not src.is_file():
+            raise VaultError(f"Note not found: {source}")
+        if dst.exists():
+            raise VaultError(f"Destination already exists: {destination}")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        src.rename(dst)
+
+    def delete_note(self, path: str) -> str:
+        p = self._resolve(path)
+        if not p.is_file():
+            raise VaultError(f"Note not found: {path}")
+        trash = self.root / ".trash"
+        trash.mkdir(exist_ok=True)
+        target = trash / p.name
+        counter = 1
+        while target.exists():
+            target = trash / f"{p.stem} {counter}{p.suffix}"
+            counter += 1
+        p.rename(target)
+        return target.relative_to(self.root).as_posix()
