@@ -173,3 +173,36 @@ class TestSearchNotes:
     def test_cap_at_max_matches(self, vault):
         vault.write_note("Big.md", "needle\n" * 200)
         assert len(vault.search_notes("needle")) == Vault.MAX_MATCHES
+
+    def test_tolerates_non_utf8_file(self, vault, vault_dir):
+        (vault_dir / "bad.md").write_bytes(b"\xff\xfe garbage")
+        paths = {m["path"] for m in vault.search_notes("inverter")}
+        assert paths == {"Daily/2026-07-24.md", "Projects/Solar/Deye.md"}
+
+
+class TestSymlinkConfinement:
+    def test_list_notes_skips_escaping_symlink(self, vault, vault_dir):
+        outside = vault_dir.parent / "outside_secret"
+        outside.mkdir()
+        (outside / "secret.md").write_text("topsecret leak\n", encoding="utf-8")
+        (vault_dir / "link.md").symlink_to(outside / "secret.md")
+        assert "link.md" not in vault.list_notes()["notes"]
+
+    def test_search_ignores_escaping_symlink(self, vault, vault_dir):
+        outside = vault_dir.parent / "outside_secret2"
+        outside.mkdir()
+        (outside / "secret.md").write_text("topsecret leak\n", encoding="utf-8")
+        (vault_dir / "link.md").symlink_to(outside / "secret.md")
+        assert vault.search_notes("topsecret") == []
+
+
+class TestOSErrorWrapping:
+    def test_write_note_parent_is_file(self, vault, vault_dir):
+        with pytest.raises(VaultError) as exc:
+            vault.write_note("Inbox.md/sub.md", "x")
+        assert str(vault_dir) not in str(exc.value)
+
+    def test_move_note_parent_is_file(self, vault, vault_dir):
+        with pytest.raises(VaultError) as exc:
+            vault.move_note("Daily/2026-07-24.md", "Inbox.md/sub.md")
+        assert str(vault_dir) not in str(exc.value)

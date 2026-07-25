@@ -40,6 +40,8 @@ class Vault:
             rel = p.relative_to(self.root)
             if any(part.startswith(".") for part in rel.parts):
                 continue
+            if not p.resolve().is_relative_to(self.root):
+                continue
             if p.is_dir():
                 folders.append(rel.as_posix())
             elif p.suffix == ".md":
@@ -58,8 +60,13 @@ class Vault:
             raise VaultError(
                 f"Note already exists (pass overwrite=true to replace): {path}"
             )
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, encoding="utf-8")
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+        except OSError:
+            raise VaultError(
+                f"Cannot write {path}: a parent path component is an existing note"
+            )
 
     def append_note(self, path: str, content: str) -> None:
         p = self._resolve(path)
@@ -77,8 +84,14 @@ class Vault:
             raise VaultError(f"Note not found: {source}")
         if dst.exists():
             raise VaultError(f"Destination already exists: {destination}")
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        src.rename(dst)
+        try:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            src.rename(dst)
+        except OSError:
+            raise VaultError(
+                f"Cannot move {source} to {destination}: "
+                "a parent path component is an existing note"
+            )
 
     def delete_note(self, path: str) -> str:
         p = self._resolve(path)
@@ -103,7 +116,7 @@ class Vault:
             note = self.root / rel
             if needle in note.name.lower():
                 matches.append({"path": rel, "line": 0, "context": "(filename match)"})
-            lines = note.read_text(encoding="utf-8").splitlines()
+            lines = note.read_text(encoding="utf-8", errors="replace").splitlines()
             for i, line in enumerate(lines):
                 if needle in line.lower():
                     context = "\n".join(lines[max(0, i - 1) : i + 2])
