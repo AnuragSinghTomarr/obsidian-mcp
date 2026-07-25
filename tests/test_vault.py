@@ -142,3 +142,34 @@ class TestDeleteNote:
     def test_missing_note_errors(self, vault):
         with pytest.raises(VaultError, match="Note not found"):
             vault.delete_note("ghost.md")
+
+
+class TestSearchNotes:
+    def test_finds_content_case_insensitive(self, vault):
+        matches = vault.search_notes("INVERTER")
+        paths = {m["path"] for m in matches}
+        assert paths == {"Daily/2026-07-24.md", "Projects/Solar/Deye.md"}
+
+    def test_match_shape_and_context(self, vault):
+        (m,) = vault.search_notes("capture")
+        assert m["path"] == "Inbox.md"
+        assert m["line"] == 2
+        assert m["context"] == "# Inbox\ncapture things here"
+
+    def test_filename_match(self, vault):
+        matches = vault.search_notes("deye")
+        assert {"path": "Projects/Solar/Deye.md", "line": 0, "context": "(filename match)"} in matches
+
+    def test_folder_scoping(self, vault):
+        assert all(
+            m["path"].startswith("Projects/")
+            for m in vault.search_notes("inverter", folder="Projects")
+        )
+
+    def test_empty_query_errors(self, vault):
+        with pytest.raises(VaultError, match="must not be empty"):
+            vault.search_notes("")
+
+    def test_cap_at_max_matches(self, vault):
+        vault.write_note("Big.md", "needle\n" * 200)
+        assert len(vault.search_notes("needle")) == Vault.MAX_MATCHES

@@ -8,6 +8,8 @@ class VaultError(Exception):
 
 
 class Vault:
+    MAX_MATCHES = 50
+
     def __init__(self, root: Path) -> None:
         root = Path(root).expanduser().resolve()
         if not root.is_dir():
@@ -91,3 +93,21 @@ class Vault:
             counter += 1
         p.rename(target)
         return target.relative_to(self.root).as_posix()
+
+    def search_notes(self, query: str, folder: str = "") -> list[dict]:
+        if not query:
+            raise VaultError("Search query must not be empty")
+        needle = query.lower()
+        matches: list[dict] = []
+        for rel in self.list_notes(folder, recursive=True)["notes"]:
+            note = self.root / rel
+            if needle in note.name.lower():
+                matches.append({"path": rel, "line": 0, "context": "(filename match)"})
+            lines = note.read_text(encoding="utf-8").splitlines()
+            for i, line in enumerate(lines):
+                if needle in line.lower():
+                    context = "\n".join(lines[max(0, i - 1) : i + 2])
+                    matches.append({"path": rel, "line": i + 1, "context": context})
+            if len(matches) >= self.MAX_MATCHES:
+                return matches[: self.MAX_MATCHES]
+        return matches
