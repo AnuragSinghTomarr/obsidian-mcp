@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 
@@ -11,6 +12,7 @@ class Vault:
     MAX_MATCHES = 50
     MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
     IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"}
+    DEFAULT_ATTACHMENT_FOLDER = "attachments"
 
     def __init__(self, root: Path) -> None:
         root = Path(root).expanduser().resolve()
@@ -37,6 +39,29 @@ class Vault:
             allowed = ", ".join(sorted(self.IMAGE_SUFFIXES))
             raise VaultError(f"Only image attachments are supported ({allowed}): {rel}")
         return candidate
+
+    def attachment_folder(self) -> str:
+        """The vault's configured attachment folder, or a sane default.
+
+        Reads Obsidian's own `attachmentFolderPath` setting. Falls back to
+        DEFAULT_ATTACHMENT_FOLDER when the config is absent, unreadable,
+        malformed, empty (Obsidian's "vault root"), or note-relative ("./x"),
+        which cannot be resolved without knowing the target note.
+        """
+        config = self.root / ".obsidian" / "app.json"
+        try:
+            settings = json.loads(config.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return self.DEFAULT_ATTACHMENT_FOLDER
+        if not isinstance(settings, dict):
+            return self.DEFAULT_ATTACHMENT_FOLDER
+        configured = settings.get("attachmentFolderPath")
+        if not isinstance(configured, str):
+            return self.DEFAULT_ATTACHMENT_FOLDER
+        configured = configured.strip().strip("/")
+        if not configured or configured.startswith("./"):
+            return self.DEFAULT_ATTACHMENT_FOLDER
+        return configured
 
     def list_notes(self, folder: str = "", recursive: bool = True) -> dict[str, list[str]]:
         base = self._resolve(folder, require_md=False) if folder else self.root

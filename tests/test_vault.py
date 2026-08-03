@@ -270,3 +270,48 @@ class TestWriteAttachment:
     def test_parent_is_an_existing_file(self, vault):
         with pytest.raises(VaultError, match="Cannot write"):
             vault.write_attachment("Inbox.md/x.png", b"data")
+
+
+class TestAttachmentFolder:
+    def _configure(self, vault_dir, raw: str) -> None:
+        (vault_dir / ".obsidian" / "app.json").write_text(raw, encoding="utf-8")
+
+    def test_uses_configured_value(self, vault, vault_dir):
+        self._configure(vault_dir, '{"attachmentFolderPath": "Media/Images"}')
+        assert vault.attachment_folder() == "Media/Images"
+
+    def test_strips_leading_slash(self, vault, vault_dir):
+        self._configure(vault_dir, '{"attachmentFolderPath": "/Media"}')
+        assert vault.attachment_folder() == "Media"
+
+    def test_default_when_key_missing(self, vault):
+        # conftest writes "{}" into .obsidian/app.json
+        assert vault.attachment_folder() == "attachments"
+
+    def test_default_when_value_empty(self, vault, vault_dir):
+        self._configure(vault_dir, '{"attachmentFolderPath": ""}')
+        assert vault.attachment_folder() == "attachments"
+
+    def test_default_when_value_is_note_relative(self, vault, vault_dir):
+        self._configure(vault_dir, '{"attachmentFolderPath": "./assets"}')
+        assert vault.attachment_folder() == "attachments"
+
+    def test_default_when_value_is_root_slash(self, vault, vault_dir):
+        self._configure(vault_dir, '{"attachmentFolderPath": "/"}')
+        assert vault.attachment_folder() == "attachments"
+
+    def test_default_when_value_wrong_type(self, vault, vault_dir):
+        self._configure(vault_dir, '{"attachmentFolderPath": 42}')
+        assert vault.attachment_folder() == "attachments"
+
+    def test_default_when_json_malformed(self, vault, vault_dir):
+        self._configure(vault_dir, "{not json")
+        assert vault.attachment_folder() == "attachments"
+
+    def test_default_when_json_is_not_an_object(self, vault, vault_dir):
+        self._configure(vault_dir, "[1, 2, 3]")
+        assert vault.attachment_folder() == "attachments"
+
+    def test_default_when_config_absent(self, vault, vault_dir):
+        (vault_dir / ".obsidian" / "app.json").unlink()
+        assert vault.attachment_folder() == "attachments"
