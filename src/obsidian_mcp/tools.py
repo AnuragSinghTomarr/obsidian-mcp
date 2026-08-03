@@ -3,7 +3,10 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import urllib.error
+import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
 
@@ -16,6 +19,35 @@ def _attachment_result(saved: str, size: int) -> str:
         {"path": saved, "embed": f"![[{Path(saved).name}]]", "bytes": size},
         indent=2,
     )
+
+
+_MAGIC_BYTES = {
+    ".png": (b"\x89PNG\r\n\x1a\n",),
+    ".jpg": (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".gif": (b"GIF87a", b"GIF89a"),
+    ".bmp": (b"BM",),
+}
+
+
+def _check_magic(filename: str, data: bytes) -> None:
+    """Reject a download whose bytes don't match its extension.
+
+    Stops an HTML error page from being saved as a .png. SVG is skipped
+    because it is text with no fixed signature.
+    """
+    suffix = Path(filename).suffix.lower()
+    if suffix == ".svg":
+        return
+    if suffix == ".webp":
+        ok = data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    else:
+        ok = any(data.startswith(sig) for sig in _MAGIC_BYTES.get(suffix, ()))
+    if not ok:
+        raise VaultError(
+            f"Downloaded data is not a valid {suffix} image "
+            f"(the URL probably returned an error page): {filename}"
+        )
 
 
 def register_tools(mcp: FastMCP, vault: Vault) -> None:
@@ -83,6 +115,42 @@ def register_tools(mcp: FastMCP, vault: Vault) -> None:
             data = base64.b64decode(payload, validate=True)
         except (binascii.Error, ValueError):
             raise VaultError(f"base64_data is not valid base64: {filename}")
+        saved = vault.write_attachment(target, data, overwrite)
+        return _attachment_result(saved, len(data))
+
+    @mcp.tool()
+    def fetch_attachment(
+        filename: str, url: str, folder: str = "", overwrite: bool = False
+    ) -> str:
+        """Download an image from an http(s) URL into the vault.
+
+        Preferred over write_attachment for generated or large images: the bytes
+        are fetched by the server and never pass through the conversation.
+        Returns the saved path and a ready-to-use "![[file.png]]" embed to pass
+        to append_note.
+
+        Args:
+            filename: Bare filename with an image extension, e.g. "chart.png".
+            url: http or https URL of the image.
+            folder: Vault-relative folder; empty uses the vault's attachment folder.
+            overwrite: Must be true to replace an existing attachment.
+        """
+        target = _attachment_path(filename, folder)
+        if urlparse(url).scheme not in ("http", "https"):
+            raise VaultError(f"Only http and https URLs are supported: {url}")
+        limit = vault.MAX_ATTACHMENT_BYTES
+        try:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                if urlparse(response.url).scheme not in ("http", "https"):
+                    raise VaultError(
+                        f"URL redirected to an unsupported scheme: {response.url}"
+                    )
+                data = response.read(limit + 1)
+        except urllib.error.URLError as exc:
+            raise VaultError(f"Cannot download {url}: {exc.reason}")
+        if len(data) > limit:
+            raise VaultError(f"Download exceeds the {limit} byte limit: {url}")
+        _check_magic(filename, data)
         saved = vault.write_attachment(target, data, overwrite)
         return _attachment_result(saved, len(data))
 

@@ -30,9 +30,20 @@ OBSIDIAN_VAULT_PATH="$HOME/Documents/MyVault" uv run obsidian-mcp
 | `search_notes(query, folder="")` | Case-insensitive search (≤50 matches, ±1 line context) |
 | `move_note(source, destination)` | Move/rename a note |
 | `delete_note(path)` | Soft-delete to the vault's `.trash/` |
+| `write_attachment(filename, base64_data, folder="", overwrite=false)` | Save a base64 image; returns its path and `![[embed]]` |
+| `fetch_attachment(filename, url, folder="", overwrite=false)` | Download an image from an http(s) URL into the vault |
 
 Safety: all paths are confined to the vault (no `../`, no absolute paths),
 dot-folders like `.obsidian/` are invisible, and deletion is always soft.
+
+Attachments: images only (`.png .jpg .jpeg .gif .webp .svg .bmp`), capped at
+25 MB, written to the folder Obsidian is configured to use
+(`attachmentFolderPath` in `.obsidian/app.json`, defaulting to `attachments/`).
+`fetch_attachment` makes the server perform an outbound `GET` on whatever
+http(s) URL it is given — the only tool here that touches the network. Downloads
+must match their claimed image type, so an error page is rejected rather than
+saved, but note that a prompt-injected instruction could still aim that `GET` at
+a host reachable from this machine.
 
 ## Claude Code
 

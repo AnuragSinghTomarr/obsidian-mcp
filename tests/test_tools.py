@@ -27,6 +27,7 @@ async def test_all_registered_tools(server):
         "move_note",
         "delete_note",
         "write_attachment",
+        "fetch_attachment",
     }
 
 
@@ -152,3 +153,110 @@ async def test_write_attachment_refuses_existing(server):
     with pytest.raises(Exception, match="already exists"):
         await server.call_tool("write_attachment", args)
     await server.call_tool("write_attachment", {**args, "overwrite": True})
+
+
+class FakeResponse:
+    """Minimal stand-in for the http.client.HTTPResponse urlopen returns."""
+
+    def __init__(self, data: bytes, url: str = "https://example.com/chart.png"):
+        self._data = data
+        self.url = url
+
+    def read(self, amount: int | None = None) -> bytes:
+        return self._data if amount is None else self._data[:amount]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def fake_urlopen(response):
+    def opener(url, timeout=None):
+        return response
+
+    return opener
+
+
+async def test_fetch_attachment_downloads_image(server, vault_dir, monkeypatch):
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen(FakeResponse(PNG_BYTES)))
+    res = await server.call_tool(
+        "fetch_attachment",
+        {"filename": "chart.png", "url": "https://example.com/chart.png"},
+    )
+    data = json.loads(result_text(res))
+    assert data == {
+        "path": "attachments/chart.png",
+        "embed": "![[chart.png]]",
+        "bytes": len(PNG_BYTES),
+    }
+    assert (vault_dir / "attachments" / "chart.png").read_bytes() == PNG_BYTES
+
+
+async def test_fetch_attachment_rejects_non_http_scheme(server):
+    with pytest.raises(Exception, match="Only http and https"):
+        await server.call_tool(
+            "fetch_attachment",
+            {"filename": "chart.png", "url": "file:///etc/passwd"},
+        )
+
+
+async def test_fetch_attachment_rejects_redirect_off_http(server, monkeypatch):
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        fake_urlopen(FakeResponse(PNG_BYTES, url="file:///etc/passwd")),
+    )
+    with pytest.raises(Exception, match="redirected to an unsupported scheme"):
+        await server.call_tool(
+            "fetch_attachment",
+            {"filename": "chart.png", "url": "https://example.com/chart.png"},
+        )
+
+
+async def test_fetch_attachment_rejects_oversized_download(server, monkeypatch):
+    from obsidian_mcp.vault import Vault
+
+    oversized = b"\x89PNG\r\n\x1a\n" + b"\x00" * Vault.MAX_ATTACHMENT_BYTES
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen(FakeResponse(oversized)))
+    with pytest.raises(Exception, match="exceeds the"):
+        await server.call_tool(
+            "fetch_attachment",
+            {"filename": "chart.png", "url": "https://example.com/chart.png"},
+        )
+
+
+async def test_fetch_attachment_rejects_html_error_page(server, monkeypatch):
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        fake_urlopen(FakeResponse(b"<!doctype html><title>404</title>")),
+    )
+    with pytest.raises(Exception, match="not a valid .png image"):
+        await server.call_tool(
+            "fetch_attachment",
+            {"filename": "chart.png", "url": "https://example.com/chart.png"},
+        )
+
+
+async def test_fetch_attachment_accepts_svg_without_magic_bytes(server, vault_dir, monkeypatch):
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg"/>'
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen(FakeResponse(svg)))
+    await server.call_tool(
+        "fetch_attachment",
+        {"filename": "logo.svg", "url": "https://example.com/logo.svg"},
+    )
+    assert (vault_dir / "attachments" / "logo.svg").read_bytes() == svg
+
+
+async def test_fetch_attachment_reports_network_failure(server, monkeypatch):
+    import urllib.error
+
+    def boom(url, timeout=None):
+        raise urllib.error.URLError("no route to host")
+
+    monkeypatch.setattr("urllib.request.urlopen", boom)
+    with pytest.raises(Exception, match="Cannot download"):
+        await server.call_tool(
+            "fetch_attachment",
+            {"filename": "chart.png", "url": "https://example.com/chart.png"},
+        )
