@@ -206,3 +206,67 @@ class TestOSErrorWrapping:
         with pytest.raises(VaultError) as exc:
             vault.move_note("Daily/2026-07-24.md", "Inbox.md/sub.md")
         assert str(vault_dir) not in str(exc.value)
+
+
+class TestResolveAttachment:
+    def test_accepts_image_suffix(self, vault, vault_dir):
+        assert vault._resolve_attachment("attachments/x.png") == (
+            vault_dir / "attachments" / "x.png"
+        )
+
+    def test_suffix_check_is_case_insensitive(self, vault, vault_dir):
+        assert vault._resolve_attachment("X.PNG") == vault_dir / "X.PNG"
+
+    def test_rejects_non_image_suffix(self, vault):
+        with pytest.raises(VaultError, match="Only image attachments"):
+            vault._resolve_attachment("notes.txt")
+        with pytest.raises(VaultError, match="Only image attachments"):
+            vault._resolve_attachment("evil.md")
+
+    def test_rejects_suffixless_path(self, vault):
+        with pytest.raises(VaultError, match="Only image attachments"):
+            vault._resolve_attachment("Daily")
+
+    def test_rejects_traversal(self, vault):
+        with pytest.raises(VaultError, match="escapes the vault"):
+            vault._resolve_attachment("../outside.png")
+
+    def test_rejects_absolute_path(self, vault):
+        with pytest.raises(VaultError, match="Absolute paths"):
+            vault._resolve_attachment("/tmp/evil.png")
+
+    def test_rejects_hidden_parts(self, vault):
+        with pytest.raises(VaultError, match="Hidden"):
+            vault._resolve_attachment(".obsidian/logo.png")
+
+
+class TestWriteAttachment:
+    def test_creates_nested_folder(self, vault, vault_dir):
+        saved = vault.write_attachment("assets/img/x.png", b"\x89PNG bytes")
+        assert saved == "assets/img/x.png"
+        assert (vault_dir / "assets" / "img" / "x.png").read_bytes() == b"\x89PNG bytes"
+
+    def test_refuses_existing_without_overwrite(self, vault):
+        with pytest.raises(VaultError, match="already exists"):
+            vault.write_attachment("diagram.png", b"new bytes")
+
+    def test_overwrites_when_allowed(self, vault, vault_dir):
+        vault.write_attachment("diagram.png", b"new bytes", overwrite=True)
+        assert (vault_dir / "diagram.png").read_bytes() == b"new bytes"
+
+    def test_rejects_empty_data(self, vault):
+        with pytest.raises(VaultError, match="empty"):
+            vault.write_attachment("x.png", b"")
+
+    def test_rejects_oversized_data(self, vault):
+        oversized = b"\x00" * (Vault.MAX_ATTACHMENT_BYTES + 1)
+        with pytest.raises(VaultError, match="over the"):
+            vault.write_attachment("x.png", oversized)
+
+    def test_rejects_non_image_suffix(self, vault):
+        with pytest.raises(VaultError, match="Only image attachments"):
+            vault.write_attachment("x.txt", b"data")
+
+    def test_parent_is_an_existing_file(self, vault):
+        with pytest.raises(VaultError, match="Cannot write"):
+            vault.write_attachment("Inbox.md/x.png", b"data")

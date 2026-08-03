@@ -9,6 +9,8 @@ class VaultError(Exception):
 
 class Vault:
     MAX_MATCHES = 50
+    MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
+    IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"}
 
     def __init__(self, root: Path) -> None:
         root = Path(root).expanduser().resolve()
@@ -27,6 +29,13 @@ class Vault:
             raise VaultError(f"Hidden files and folders are not accessible: {rel}")
         if require_md and candidate.suffix != ".md":
             raise VaultError(f"Only .md notes are supported: {rel}")
+        return candidate
+
+    def _resolve_attachment(self, rel: str) -> Path:
+        candidate = self._resolve(rel, require_md=False)
+        if candidate.suffix.lower() not in self.IMAGE_SUFFIXES:
+            allowed = ", ".join(sorted(self.IMAGE_SUFFIXES))
+            raise VaultError(f"Only image attachments are supported ({allowed}): {rel}")
         return candidate
 
     def list_notes(self, folder: str = "", recursive: bool = True) -> dict[str, list[str]]:
@@ -67,6 +76,28 @@ class Vault:
             raise VaultError(
                 f"Cannot write {path}: a parent path component is an existing note"
             )
+
+    def write_attachment(self, path: str, data: bytes, overwrite: bool = False) -> str:
+        if not data:
+            raise VaultError(f"Attachment data is empty: {path}")
+        if len(data) > self.MAX_ATTACHMENT_BYTES:
+            raise VaultError(
+                f"Attachment is {len(data)} bytes, over the "
+                f"{self.MAX_ATTACHMENT_BYTES} byte limit: {path}"
+            )
+        p = self._resolve_attachment(path)
+        if p.exists() and not overwrite:
+            raise VaultError(
+                f"Attachment already exists (pass overwrite=true to replace): {path}"
+            )
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(data)
+        except OSError:
+            raise VaultError(
+                f"Cannot write {path}: a parent path component is an existing file"
+            )
+        return p.relative_to(self.root).as_posix()
 
     def append_note(self, path: str, content: str) -> None:
         p = self._resolve(path)
