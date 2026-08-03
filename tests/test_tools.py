@@ -260,3 +260,21 @@ async def test_fetch_attachment_reports_network_failure(server, monkeypatch):
             "fetch_attachment",
             {"filename": "chart.png", "url": "https://example.com/chart.png"},
         )
+
+
+class TimeoutResponse(FakeResponse):
+    """Simulates a connection that opens fine but times out mid-read."""
+
+    def read(self, amount: int | None = None) -> bytes:
+        raise TimeoutError("timed out")
+
+
+async def test_fetch_attachment_reports_timeout_during_read(server, monkeypatch):
+    monkeypatch.setattr(
+        "urllib.request.urlopen", fake_urlopen(TimeoutResponse(PNG_BYTES))
+    )
+    with pytest.raises(Exception, match="Cannot download"):
+        await server.call_tool(
+            "fetch_attachment",
+            {"filename": "chart.png", "url": "https://example.com/chart.png"},
+        )

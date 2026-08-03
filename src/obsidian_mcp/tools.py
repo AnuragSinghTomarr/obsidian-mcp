@@ -146,8 +146,9 @@ def register_tools(mcp: FastMCP, vault: Vault) -> None:
                         f"URL redirected to an unsupported scheme: {response.url}"
                     )
                 data = response.read(limit + 1)
-        except urllib.error.URLError as exc:
-            raise VaultError(f"Cannot download {url}: {exc.reason}")
+        except (urllib.error.URLError, OSError) as exc:
+            reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+            raise VaultError(f"Cannot download {url}: {reason}")
         if len(data) > limit:
             raise VaultError(f"Download exceeds the {limit} byte limit: {url}")
         _check_magic(filename, data)
