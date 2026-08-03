@@ -1,13 +1,32 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import json
+from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from obsidian_mcp.vault import Vault
+from obsidian_mcp.vault import Vault, VaultError
+
+
+def _attachment_result(saved: str, size: int) -> str:
+    """JSON for a saved attachment: its path, a ready-to-paste embed, its size."""
+    return json.dumps(
+        {"path": saved, "embed": f"![[{Path(saved).name}]]", "bytes": size},
+        indent=2,
+    )
 
 
 def register_tools(mcp: FastMCP, vault: Vault) -> None:
+    def _attachment_path(filename: str, folder: str) -> str:
+        if "/" in filename or "\\" in filename:
+            raise VaultError(
+                f"filename must be a bare filename, not a path (use folder=): {filename}"
+            )
+        base = folder.strip().strip("/") if folder else vault.attachment_folder()
+        return f"{base}/{filename}" if base else filename
+
     @mcp.tool()
     def list_notes(folder: str = "", recursive: bool = True) -> str:
         """List notes and folders in the vault (vault-relative paths).
@@ -38,6 +57,34 @@ def register_tools(mcp: FastMCP, vault: Vault) -> None:
         """
         vault.write_note(path, content, overwrite)
         return f"Wrote {path}"
+
+    @mcp.tool()
+    def write_attachment(
+        filename: str, base64_data: str, folder: str = "", overwrite: bool = False
+    ) -> str:
+        """Save a base64-encoded image into the vault so a note can embed it.
+
+        Returns the saved path and a ready-to-use "![[file.png]]" embed to pass
+        to append_note. Use this for small images only — prefer fetch_attachment
+        when the image has a URL, since a large PNG does not survive base64 in a
+        single tool call.
+
+        Args:
+            filename: Bare filename with an image extension, e.g. "chart.png".
+            base64_data: Base64 image bytes; a "data:image/png;base64," prefix is fine.
+            folder: Vault-relative folder; empty uses the vault's attachment folder.
+            overwrite: Must be true to replace an existing attachment.
+        """
+        target = _attachment_path(filename, folder)
+        payload = "".join(base64_data.split())
+        if payload.startswith("data:"):
+            _, _, payload = payload.partition(",")
+        try:
+            data = base64.b64decode(payload, validate=True)
+        except (binascii.Error, ValueError):
+            raise VaultError(f"base64_data is not valid base64: {filename}")
+        saved = vault.write_attachment(target, data, overwrite)
+        return _attachment_result(saved, len(data))
 
     @mcp.tool()
     def append_note(path: str, content: str) -> str:
