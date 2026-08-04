@@ -97,6 +97,54 @@ class TestWriteNote:
             vault.write_note("../evil.md", "x")
 
 
+class TestAtomicNoteWrites:
+    def test_failed_write_leaves_original_intact(self, vault, vault_dir, monkeypatch):
+        def boom(src, dst):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("os.replace", boom)
+        with pytest.raises(VaultError, match="Inbox.md"):
+            vault.write_note("Inbox.md", "new content", overwrite=True)
+        assert (vault_dir / "Inbox.md").read_text(encoding="utf-8") == "# Inbox\ncapture things here\n"
+
+    def test_failed_write_leaves_no_temp_file(self, vault, vault_dir, monkeypatch):
+        def boom(src, dst):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("os.replace", boom)
+        with pytest.raises(VaultError):
+            vault.write_note("Inbox.md", "new content", overwrite=True)
+        leftovers = [p for p in vault_dir.iterdir() if ".Inbox.md." in p.name]
+        assert leftovers == []
+
+    def test_overwrite_preserves_permission_bits(self, vault, vault_dir):
+        note = vault_dir / "Inbox.md"
+        note.chmod(0o600)
+        vault.write_note("Inbox.md", "rewritten\n", overwrite=True)
+        assert (note.stat().st_mode & 0o777) == 0o600
+
+    def test_rejects_oversized_note(self, vault, vault_dir):
+        big = "x" * (Vault.MAX_NOTE_BYTES + 1)
+        with pytest.raises(VaultError, match="byte limit"):
+            vault.write_note("Inbox.md", big, overwrite=True)
+        assert (vault_dir / "Inbox.md").read_text(encoding="utf-8") == "# Inbox\ncapture things here\n"
+
+    def test_size_cap_counts_utf8_bytes(self, vault):
+        # 4-byte emoji: char count is far under the cap, byte count is over it
+        big = "🚀" * (Vault.MAX_NOTE_BYTES // 4 + 1)
+        with pytest.raises(VaultError, match="byte limit"):
+            vault.write_note("Emoji.md", big)
+
+    def test_append_is_atomic(self, vault, vault_dir, monkeypatch):
+        def boom(src, dst):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("os.replace", boom)
+        with pytest.raises(VaultError):
+            vault.append_note("Inbox.md", "- more\n")
+        assert (vault_dir / "Inbox.md").read_text(encoding="utf-8") == "# Inbox\ncapture things here\n"
+
+
 class TestAppendNote:
     def test_appends_with_newline_separator(self, vault, vault_dir):
         (vault_dir / "NoNewline.md").write_text("tail", encoding="utf-8")

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 
 
@@ -11,6 +13,7 @@ class VaultError(Exception):
 class Vault:
     MAX_MATCHES = 50
     MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
+    MAX_NOTE_BYTES = 10 * 1024 * 1024
     IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"}
     DEFAULT_ATTACHMENT_FOLDER = "attachments"
 
@@ -39,6 +42,31 @@ class Vault:
             allowed = ", ".join(sorted(self.IMAGE_SUFFIXES))
             raise VaultError(f"Only image attachments are supported ({allowed}): {rel}")
         return candidate
+
+    def _write_text_atomic(self, p: Path, content: str, rel: str) -> None:
+        """Write a note via temp-file + rename so a failure never truncates it."""
+        data = content.encode("utf-8")
+        if len(data) > self.MAX_NOTE_BYTES:
+            raise VaultError(
+                f"Note is {len(data)} bytes, over the "
+                f"{self.MAX_NOTE_BYTES} byte limit: {rel}"
+            )
+        fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=f".{p.name}.", suffix=".tmp")
+        try:
+            try:
+                if p.exists():
+                    os.fchmod(fd, p.stat().st_mode & 0o7777)
+                os.write(fd, data)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            os.replace(tmp, p)
+        except OSError as exc:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise VaultError(f"Cannot write {rel}: {exc}")
 
     def attachment_folder(self) -> str:
         """The vault's configured attachment folder, or a sane default.
@@ -96,11 +124,11 @@ class Vault:
             )
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(content, encoding="utf-8")
         except OSError:
             raise VaultError(
                 f"Cannot write {path}: a parent path component is an existing note"
             )
+        self._write_text_atomic(p, content, path)
 
     def write_attachment(self, path: str, data: bytes, overwrite: bool = False) -> str:
         if not data:
@@ -131,7 +159,7 @@ class Vault:
         existing = p.read_text(encoding="utf-8")
         if existing and not existing.endswith("\n"):
             existing += "\n"
-        p.write_text(existing + content, encoding="utf-8")
+        self._write_text_atomic(p, existing + content, path)
 
     def move_note(self, source: str, destination: str) -> None:
         src = self._resolve(source)
