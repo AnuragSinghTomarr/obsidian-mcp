@@ -130,6 +130,36 @@ class Vault:
             )
         self._write_text_atomic(p, content, path)
 
+    def replace_in_note(
+        self,
+        path: str,
+        old_text: str,
+        new_text: str,
+        replace_all: bool = False,
+        expected_replacements: int | None = None,
+    ) -> int:
+        if not old_text:
+            raise VaultError("old_text must not be empty")
+        p = self._resolve(path)
+        if not p.is_file():
+            raise VaultError(f"Note not found: {path}")
+        content = p.read_text(encoding="utf-8")
+        occurrences = content.count(old_text)
+        if occurrences == 0:
+            raise VaultError(f"old_text not found in {path}")
+        planned = occurrences if replace_all else 1
+        if expected_replacements is not None and planned != expected_replacements:
+            raise VaultError(
+                f"Expected {expected_replacements} replacement(s) but would make "
+                f"{planned} in {path}"
+            )
+        if replace_all:
+            updated = content.replace(old_text, new_text)
+        else:
+            updated = content.replace(old_text, new_text, 1)
+        self._write_text_atomic(p, updated, path)
+        return planned
+
     def write_attachment(self, path: str, data: bytes, overwrite: bool = False) -> str:
         if not data:
             raise VaultError(f"Attachment data is empty: {path}")

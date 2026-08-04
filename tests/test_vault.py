@@ -145,6 +145,101 @@ class TestAtomicNoteWrites:
         assert (vault_dir / "Inbox.md").read_text(encoding="utf-8") == "# Inbox\ncapture things here\n"
 
 
+class TestReplaceInNote:
+    def test_replaces_first_occurrence_only(self, vault, vault_dir):
+        (vault_dir / "Embed.md").write_text("a ![](x.png) b ![](x.png) c\n", encoding="utf-8")
+        count = vault.replace_in_note("Embed.md", "![](x.png)", "![[x.png]]")
+        assert count == 1
+        assert (vault_dir / "Embed.md").read_text(encoding="utf-8") == "a ![[x.png]] b ![](x.png) c\n"
+
+    def test_replace_all(self, vault, vault_dir):
+        (vault_dir / "Embed.md").write_text("![](x.png)\n![](x.png)\n", encoding="utf-8")
+        count = vault.replace_in_note("Embed.md", "![](x.png)", "![[x.png]]", replace_all=True)
+        assert count == 2
+        assert (vault_dir / "Embed.md").read_text(encoding="utf-8") == "![[x.png]]\n![[x.png]]\n"
+
+    def test_preserves_unrelated_content(self, vault, vault_dir):
+        original = "# Today\n- solar inverter reading\n"
+        vault.replace_in_note("Daily/2026-07-24.md", "solar", "hybrid")
+        updated = (vault_dir / "Daily" / "2026-07-24.md").read_text(encoding="utf-8")
+        assert updated == original.replace("solar", "hybrid", 1)
+
+    def test_old_text_absent_errors_and_leaves_file(self, vault, vault_dir):
+        with pytest.raises(VaultError, match="old_text not found"):
+            vault.replace_in_note("Inbox.md", "no such text", "x")
+        assert (vault_dir / "Inbox.md").read_text(encoding="utf-8") == "# Inbox\ncapture things here\n"
+
+    def test_expected_replacements_mismatch_aborts(self, vault, vault_dir):
+        (vault_dir / "Embed.md").write_text("![](x.png)\n![](x.png)\n", encoding="utf-8")
+        with pytest.raises(VaultError, match="Expected 1"):
+            vault.replace_in_note(
+                "Embed.md", "![](x.png)", "![[x.png]]",
+                replace_all=True, expected_replacements=1,
+            )
+        assert (vault_dir / "Embed.md").read_text(encoding="utf-8") == "![](x.png)\n![](x.png)\n"
+
+    def test_expected_replacements_match_succeeds(self, vault, vault_dir):
+        (vault_dir / "Embed.md").write_text("![](x.png)\n![](x.png)\n", encoding="utf-8")
+        count = vault.replace_in_note(
+            "Embed.md", "![](x.png)", "![[x.png]]",
+            replace_all=True, expected_replacements=2,
+        )
+        assert count == 2
+
+    def test_empty_old_text_errors(self, vault):
+        with pytest.raises(VaultError, match="old_text"):
+            vault.replace_in_note("Inbox.md", "", "x")
+
+    def test_missing_note_errors(self, vault):
+        with pytest.raises(VaultError, match="Nope.md"):
+            vault.replace_in_note("Nope.md", "a", "b")
+
+    def test_rejects_traversal(self, vault):
+        with pytest.raises(VaultError):
+            vault.replace_in_note("../outside.md", "a", "b")
+
+    def test_rejects_absolute_path(self, vault):
+        with pytest.raises(VaultError):
+            vault.replace_in_note("/etc/notes.md", "a", "b")
+
+    def test_rejects_non_markdown(self, vault):
+        with pytest.raises(VaultError):
+            vault.replace_in_note("diagram.png", "a", "b")
+
+    def test_rejects_escaping_symlink(self, vault, vault_dir, tmp_path_factory):
+        outside = tmp_path_factory.mktemp("outside")
+        (outside / "secret.md").write_text("token here\n", encoding="utf-8")
+        (vault_dir / "link.md").symlink_to(outside / "secret.md")
+        with pytest.raises(VaultError):
+            vault.replace_in_note("link.md", "token", "x")
+        assert (outside / "secret.md").read_text(encoding="utf-8") == "token here\n"
+
+    def test_unicode_content(self, vault, vault_dir):
+        (vault_dir / "Uni.md").write_text("héllo 🚀 日本語\n", encoding="utf-8")
+        vault.replace_in_note("Uni.md", "🚀", "🌞")
+        assert (vault_dir / "Uni.md").read_text(encoding="utf-8") == "héllo 🌞 日本語\n"
+
+    def test_filename_with_spaces_ampersand_hyphen(self, vault, vault_dir):
+        folder = vault_dir / "System Design Course"
+        folder.mkdir()
+        note = folder / "04 - HTTP & APIs.md"
+        note.write_text("![](attachments/5xx-http-errors-handwritten.png)\n", encoding="utf-8")
+        count = vault.replace_in_note(
+            "System Design Course/04 - HTTP & APIs.md",
+            "![](attachments/5xx-http-errors-handwritten.png)",
+            "![[5xx-http-errors-handwritten.png]]",
+            expected_replacements=1,
+        )
+        assert count == 1
+        assert note.read_text(encoding="utf-8") == "![[5xx-http-errors-handwritten.png]]\n"
+
+    def test_oversized_result_aborts(self, vault, vault_dir):
+        (vault_dir / "Grow.md").write_text("SEED\n", encoding="utf-8")
+        with pytest.raises(VaultError, match="byte limit"):
+            vault.replace_in_note("Grow.md", "SEED", "x" * (Vault.MAX_NOTE_BYTES + 1))
+        assert (vault_dir / "Grow.md").read_text(encoding="utf-8") == "SEED\n"
+
+
 class TestAppendNote:
     def test_appends_with_newline_separator(self, vault, vault_dir):
         (vault_dir / "NoNewline.md").write_text("tail", encoding="utf-8")
