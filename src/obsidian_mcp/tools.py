@@ -91,6 +91,33 @@ def register_tools(mcp: FastMCP, vault: Vault) -> None:
         return f"Wrote {path}"
 
     @mcp.tool()
+    def replace_in_note(
+        path: str,
+        old_text: str,
+        new_text: str,
+        replace_all: bool = False,
+        expected_replacements: int | None = None,
+    ) -> str:
+        """Safely replace exact text inside an existing Markdown note without
+        rewriting unrelated content.
+
+        Args:
+            path: Vault-relative path of an existing note.
+            old_text: Exact text that must already occur in the note.
+            new_text: Replacement text.
+            replace_all: Replace every exact occurrence instead of only the first.
+            expected_replacements: Abort without writing unless exactly this many
+                replacements would be made. When replace_all is false the planned
+                count is always 1, so to assert "exactly N occurrences exist" pass
+                replace_all=true with expected_replacements=N.
+        """
+        count = vault.replace_in_note(
+            path, old_text, new_text, replace_all, expected_replacements
+        )
+        plural = "occurrence" if count == 1 else "occurrences"
+        return f"Replaced {count} {plural} in {path}"
+
+    @mcp.tool()
     def write_attachment(
         filename: str, base64_data: str, folder: str = "", overwrite: bool = False
     ) -> str:

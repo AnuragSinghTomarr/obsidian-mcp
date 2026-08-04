@@ -22,6 +22,7 @@ async def test_all_registered_tools(server):
         "list_notes",
         "read_note",
         "write_note",
+        "replace_in_note",
         "append_note",
         "search_notes",
         "move_note",
@@ -44,6 +45,39 @@ async def test_read_note_tool(server):
 async def test_write_then_read_roundtrip(server):
     await server.call_tool("write_note", {"path": "New.md", "content": "hello\n"})
     assert result_text(await server.call_tool("read_note", {"path": "New.md"})) == "hello\n"
+
+
+async def test_replace_in_note_tool(server):
+    await server.call_tool("write_note", {"path": "Embed.md", "content": "see ![](x.png) here\n"})
+    res = await server.call_tool(
+        "replace_in_note",
+        {"path": "Embed.md", "old_text": "![](x.png)", "new_text": "![[x.png]]"},
+    )
+    assert result_text(res) == "Replaced 1 occurrence in Embed.md"
+    assert result_text(await server.call_tool("read_note", {"path": "Embed.md"})) == "see ![[x.png]] here\n"
+
+
+async def test_replace_in_note_tool_replace_all(server):
+    await server.call_tool("write_note", {"path": "Embed.md", "content": "![](x.png) ![](x.png)\n"})
+    res = await server.call_tool(
+        "replace_in_note",
+        {
+            "path": "Embed.md",
+            "old_text": "![](x.png)",
+            "new_text": "![[x.png]]",
+            "replace_all": True,
+            "expected_replacements": 2,
+        },
+    )
+    assert result_text(res) == "Replaced 2 occurrences in Embed.md"
+
+
+async def test_replace_in_note_tool_missing_old_text(server):
+    with pytest.raises(Exception, match="old_text not found"):
+        await server.call_tool(
+            "replace_in_note",
+            {"path": "Inbox.md", "old_text": "absent", "new_text": "x"},
+        )
 
 
 async def test_append_note_tool(server):

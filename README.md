@@ -26,6 +26,7 @@ OBSIDIAN_VAULT_PATH="$HOME/Documents/MyVault" uv run obsidian-mcp
 | `list_notes(folder="", recursive=true)` | List notes and folders |
 | `read_note(path)` | Read a note's full content |
 | `write_note(path, content, overwrite=false)` | Create (or overwrite) a note |
+| `replace_in_note(path, old_text, new_text, replace_all=false, expected_replacements=null)` | Replace exact text in a note without rewriting the rest |
 | `append_note(path, content)` | Append to an existing note |
 | `search_notes(query, folder="")` | Case-insensitive search (≤50 matches, ±1 line context) |
 | `move_note(source, destination)` | Move/rename a note |
@@ -44,6 +45,24 @@ http(s) URL it is given — the only tool here that touches the network. Downloa
 must match their claimed image type, so an error page is rejected rather than
 saved, but note that a prompt-injected instruction could still aim that `GET` at
 a host reachable from this machine.
+
+### Editing a note surgically
+
+Fix a broken image embed without rewriting the note:
+
+```
+replace_in_note(
+  path="System Design Course/04 - HTTP & APIs.md",
+  old_text="![](attachments/5xx-http-errors-handwritten.png)",
+  new_text="![[5xx-http-errors-handwritten.png]]",
+  expected_replacements=1,
+)
+```
+
+`read_note(path)` returns the full markdown; `write_note(path, content,
+overwrite=true)` replaces a whole note. Prefer `replace_in_note` for small
+edits — it refuses to touch the file when `old_text` is missing or the
+occurrence count doesn't match `expected_replacements`.
 
 ## Claude Code
 
