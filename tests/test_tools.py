@@ -32,6 +32,19 @@ async def test_all_registered_tools(server):
     }
 
 
+async def test_tool_annotations(server):
+    tools = {t.name: t.annotations for t in await server.list_tools()}
+    read_only = {"list_notes", "read_note", "search_notes"}
+    non_destructive_writes = {"append_note", "move_note"}
+    for name, ann in tools.items():
+        assert ann is not None, name
+        assert ann.openWorldHint is (name == "fetch_attachment"), name
+        assert ann.readOnlyHint is (name in read_only), name
+    for name in tools.keys() - read_only:
+        assert tools[name].destructiveHint is (name not in non_destructive_writes), name
+        assert tools[name].idempotentHint is False, name
+
+
 async def test_list_notes_tool(server):
     data = json.loads(result_text(await server.call_tool("list_notes", {})))
     assert "Inbox.md" in data["notes"]

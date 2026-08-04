@@ -36,6 +36,9 @@ OBSIDIAN_VAULT_PATH="$HOME/Documents/MyVault" uv run obsidian-mcp
 
 Safety: all paths are confined to the vault (no `../`, no absolute paths),
 dot-folders like `.obsidian/` are invisible, and deletion is always soft.
+Every tool declares MCP annotations (read-only / destructive / open-world
+hints) so client safety layers can classify calls; `fetch_attachment` is the
+only tool marked open-world.
 
 Attachments: images only (`.png .jpg .jpeg .gif .webp .svg .bmp`), capped at
 25 MB, written to the folder Obsidian is configured to use

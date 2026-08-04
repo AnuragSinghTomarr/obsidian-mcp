@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from obsidian_mcp.vault import Vault, VaultError
 
@@ -50,6 +51,18 @@ def _check_magic(filename: str, data: bytes) -> None:
         )
 
 
+_READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+_LOCAL_WRITE = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False
+)
+_LOCAL_WRITE_NON_DESTRUCTIVE = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False
+)
+_NETWORK_WRITE = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=True
+)
+
+
 def register_tools(mcp: FastMCP, vault: Vault) -> None:
     def _attachment_path(filename: str, folder: str) -> str:
         if "/" in filename or "\\" in filename:
@@ -59,7 +72,7 @@ def register_tools(mcp: FastMCP, vault: Vault) -> None:
         base = folder.strip().strip("/") if folder else vault.attachment_folder()
         return f"{base}/{filename}" if base else filename
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READ_ONLY)
     def list_notes(folder: str = "", recursive: bool = True) -> str:
         """List notes and folders in the vault (vault-relative paths).
 
@@ -69,7 +82,7 @@ def register_tools(mcp: FastMCP, vault: Vault) -> None:
         """
         return json.dumps(vault.list_notes(folder, recursive), indent=2)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READ_ONLY)
     def read_note(path: str) -> str:
         """Read the full content of a note.
 
@@ -78,7 +91,7 @@ def register_tools(mcp: FastMCP, vault: Vault) -> None:
         """
         return vault.read_note(path)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_LOCAL_WRITE)
     def write_note(path: str, content: str, overwrite: bool = False) -> str:
         """Create a note (parent folders auto-created).
 
@@ -90,7 +103,7 @@ def register_tools(mcp: FastMCP, vault: Vault) -> None:
         vault.write_note(path, content, overwrite)
         return f"Wrote {path}"
 
-    @mcp.tool()
+    @mcp.tool(annotations=_LOCAL_WRITE)
     def replace_in_note(
         path: str,
         old_text: str,
@@ -117,7 +130,7 @@ def register_tools(mcp: FastMCP, vault: Vault) -> None:
         plural = "occurrence" if count == 1 else "occurrences"
         return f"Replaced {count} {plural} in {path}"
 
-    @mcp.tool()
+    @mcp.tool(annotations=_LOCAL_WRITE)
     def write_attachment(
         filename: str, base64_data: str, folder: str = "", overwrite: bool = False
     ) -> str:
@@ -145,7 +158,7 @@ def register_tools(mcp: FastMCP, vault: Vault) -> None:
         saved = vault.write_attachment(target, data, overwrite)
         return _attachment_result(saved, len(data))
 
-    @mcp.tool()
+    @mcp.tool(annotations=_NETWORK_WRITE)
     def fetch_attachment(
         filename: str, url: str, folder: str = "", overwrite: bool = False
     ) -> str:
@@ -182,7 +195,7 @@ def register_tools(mcp: FastMCP, vault: Vault) -> None:
         saved = vault.write_attachment(target, data, overwrite)
         return _attachment_result(saved, len(data))
 
-    @mcp.tool()
+    @mcp.tool(annotations=_LOCAL_WRITE_NON_DESTRUCTIVE)
     def append_note(path: str, content: str) -> str:
         """Append text to an existing note (a newline separator is ensured).
 
@@ -193,7 +206,7 @@ def register_tools(mcp: FastMCP, vault: Vault) -> None:
         vault.append_note(path, content)
         return f"Appended to {path}"
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READ_ONLY)
     def search_notes(query: str, folder: str = "") -> str:
         """Case-insensitive text search across note contents and filenames.
 
@@ -206,7 +219,7 @@ def register_tools(mcp: FastMCP, vault: Vault) -> None:
         """
         return json.dumps(vault.search_notes(query, folder), indent=2)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_LOCAL_WRITE_NON_DESTRUCTIVE)
     def move_note(source: str, destination: str) -> str:
         """Move or rename a note (destination folders auto-created).
 
@@ -217,7 +230,7 @@ def register_tools(mcp: FastMCP, vault: Vault) -> None:
         vault.move_note(source, destination)
         return f"Moved {source} -> {destination}"
 
-    @mcp.tool()
+    @mcp.tool(annotations=_LOCAL_WRITE)
     def delete_note(path: str) -> str:
         """Soft-delete a note by moving it to the vault's .trash/ folder.
 
